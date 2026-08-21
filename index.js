@@ -1,16 +1,33 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
 const express = require('express');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// --- 1. سيرفر صغير لبقاء البوت نشطاً 24 ساعة ---
+let qrCodeImage = '';
+
+// --- سيرفر يعرض رمز QR كصورة حقيقية واضحة جداً ---
 const app = express();
-app.get('/', (req, res) => res.send('WhatsApp Hunter Active 24/7'));
+app.get('/', (req, res) => {
+    if (qrCodeImage) {
+        res.send(`
+            <html dir="rtl">
+            <body style="background: #111; color: #fff; text-align: center; font-family: sans-serif; padding-top: 50px;">
+                <h2>مسح رمز QR الخاص ببوت الواتساب</h2>
+                <img src="${qrCodeImage}" alt="QR Code" style="background: #fff; padding: 20px; border-radius: 10px; width: 300px; height: 300px;"/>
+                <p>قم بتحديث الصفحة (Refresh) إذا انقضى وقت الرمز.</p>
+            </body>
+            </html>
+        `);
+    } else {
+        res.send('<html dir="rtl"><body style="background: #111; color: #fff; text-align: center; padding-top: 50px;"><h2>البوت يعمل أو يقوم بالاتصال، انتظر قليلاً وحدث الصفحة...</h2></body></html>');
+    }
+});
+
 app.listen(7860, '0.0.0.0', () => console.log('Web server running on port 7860'));
 
-// --- 2. الإعدادات والكلمات المفتاحية (مطابقة لكودك تماماً) ---
-const TARGET_GROUP_ID = "1234567890-group@g.us"; // ⚠️ ضع آيدي مجموعتك المستقبلة هنا بدقة
+// --- الإعدادات والكلمات المفتاحية ---
+const TARGET_GROUP_ID = "1234567890-group@g.us"; // ⚠️ ضع آيدي مجموعتك هنا بدقة
 const HISTORY_FILE = "sent_history.txt";
 
 const KEYWORDS = [
@@ -34,7 +51,6 @@ function saveToHistory(msgHash) {
     fs.appendFileSync(HISTORY_FILE, msgHash + "\n");
 }
 
-// دالة فحص عدد الإيموجي
 function countEmojis(text) {
     const emojis = text.match(/[\u{1F000}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu);
     return emojis ? emojis.length : 0;
@@ -47,24 +63,27 @@ const client = new Client({
     }
 });
 
-client.on('qr', (qr) => {
-    console.log('--- امسح رمز QR التالي من تطبيق واتساب في هاتفك ---');
-    qrcode.generate(qr, { small: true });
+client.on('qr', async (qr) => {
+    console.log('--- تم توليد رمز QR، افتح رابط موقعك على Render لرؤيته بوضوح ---');
+    try {
+        qrCodeImage = await QRCode.toDataURL(qr);
+    } catch (err) {
+        console.log('Error generating QR image', err);
+    }
 });
 
 client.on('ready', () => {
-    console.log('🚀 بوت واتساب يعمل الآن بكفاءة وبنفس فلاتر كودك!');
+    console.log('🚀 بوت واتساب يعمل الآن بكفاءة وبنفس الفلاتر المطلوبة!');
+    qrCodeImage = ''; // إخفاء الكود بعد نجاح الربط
 });
 
 client.on('message', async msg => {
     try {
-        // التأكد أن الرسالة من مجموعة وليست مجموعة التنبيه نفسها
         if (!msg.from.endsWith('@g.us') || msg.from === TARGET_GROUP_ID) return;
 
         const content = msg.body || "";
         const contentLower = content.toLowerCase().trim();
 
-        // 1. فحص الكلمات المفتاحية الصارمة
         let matched = false;
         for (let kw of KEYWORDS) {
             let pattern = new RegExp('\\b' + kw.trim() + '\\b', 'i');
@@ -75,10 +94,7 @@ client.on('message', async msg => {
         }
         if (!matched) return;
 
-        // 2. فلتر الأمان والأرقام الهاتفية الصارم
         if (contentLower.length > 100 || /\d{7,15}/.test(contentLower)) return;
-
-        // 3. فلتر الإيموجي
         if (countEmojis(content) > 1) return;
 
         const senderId = msg.author || msg.from;
@@ -100,7 +116,6 @@ client.on('message', async msg => {
             `✅ *الرسالة الأصلية محولة أدناه:*`
         );
 
-        // إرسال التنبيه وتحويل الرسالة
         await client.sendMessage(TARGET_GROUP_ID, infoMessage);
         try {
             await msg.forward(TARGET_GROUP_ID);
@@ -114,4 +129,4 @@ client.on('message', async msg => {
 });
 
 client.initialize();
-        
+    
