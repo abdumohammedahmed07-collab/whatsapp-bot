@@ -73,8 +73,18 @@ client.on('qr', async (qr) => {
 });
 
 client.on('ready', () => {
-    console.log('🚀 بوت واتساب يعمل الآن بكفاءة وبنفس الفلاتر المطلوبة!');
-    qrCodeImage = ''; // إخفاء الكود بعد نجاح الربط
+    console.log('🚀 بوت واتساب يعمل الآن بكفاءة!');
+    
+    // كود كاشف المجموعات
+    client.getChats().then(chats => {
+        console.log('--- قائمة المجموعات المتاحة ---');
+        chats.forEach(chat => {
+            if (chat.isGroup) {
+                console.log(`اسم المجموعة: ${chat.name} | الـ ID الخاص بها: ${chat.id._serialized}`);
+            }
+        });
+        console.log('------------------------------');
+    });
 });
 
 client.on('message', async msg => {
