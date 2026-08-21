@@ -1,67 +1,62 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const QRCode = require('qrcode');
+const { Client, RemoteAuth } = require('whatsapp-web.js');
+const { MongoStore } = require('wwebjs-mongo');
+const mongoose = require('mongoose');
 const express = require('express');
+const QRCode = require('qrcode');
 
-let qrCodeImage = '';
 const app = express();
 const PORT = process.env.PORT || 7860;
+let qrCodeImage = '';
+
+// الرابط الخاص بقاعدة بياناتك (تم تصحيحه)
+const MONGODB_URI = "mongodb+srv://abdu:abdu12345@cluster0.rowbp8x.mongodb.net/?appName=Cluster0";
 
 app.get('/', (req, res) => {
     if (qrCodeImage) {
-        res.send(`
-            <html dir="rtl">
-            <body style="background: #111; color: #fff; text-align: center; font-family: sans-serif; padding-top: 40px;">
-                <h2>مسح رمز QR الخاص ببوت الواتساب</h2>
-                <img src="${qrCodeImage}" alt="QR Code" style="background: #fff; padding: 15px; border-radius: 10px; width: 280px; height: 280px;"/>
-                <p>قم بتحديث الصفحة إذا انتهت صلاحية الرمز.</p>
-            </body>
-            </html>
-        `);
+        res.send(`<html dir="rtl"><body style="background:#111;color:#fff;text-align:center;padding-top:40px;"><h2>مسح رمز QR لمرة واحدة فقط</h2><img src="${qrCodeImage}" style="background:#fff;padding:15px;border-radius:10px;width:280px;height:280px;"/><p>حدث الصفحة إذا طال الانتظار.</p></body></html>`);
     } else {
-        res.send('<html dir="rtl"><body style="background: #111; color: #fff; text-align: center; padding-top: 50px;"><h2>🚀 البوت متصل ومستعد أو جاري تحميل الرمز... حدث الصفحة خلال ثوانٍ.</h2></body></html>');
+        res.send('<html dir="rtl"><body style="background:#111;color:#fff;text-align:center;padding-top:50px;"><h2>🚀 البوت متصل ومستقر في قاعدة البيانات.</h2></body></html>');
     }
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Web server running on port ${PORT}`));
 
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    }
-});
-
-client.on('qr', async (qr) => {
-    console.log('⚡ تم توليد رمز QR جديد، افتح الرابط لمسحه فوراً.');
-    try {
-        qrCodeImage = await QRCode.toDataURL(qr);
-    } catch (err) {
-        console.log('Error generating QR', err);
-    }
-});
-
-client.on('authenticated', () => {
-    console.log('✅ تم مسح الرمز وتوثيق الحساب بنجاح!');
-});
-
-client.on('auth_failure', msg => {
-    console.error('❌ فشل التوثيق:', msg);
-});
-
-client.on('ready', () => {
-    console.log('🎉 البوت جاهز تماماً! جاري استخراج المجموعات...');
-    qrCodeImage = '';
+// الاتصال بقاعدة البيانات
+mongoose.connect(MONGODB_URI).then(() => {
+    console.log('✅ تم الاتصال بقاعدة البيانات بنجاح!');
     
-    client.getChats().then(chats => {
-        console.log('=== قائمة المجموعات والـ IDs ===');
-        chats.forEach(chat => {
-            if (chat.isGroup) {
-                console.log(`اسم المجموعة: ${chat.name} ===> ID: ${chat.id._serialized}`);
-            }
-        });
-        console.log('===============================');
-    }).catch(err => console.log('خطأ في جلب المجموعات:', err));
-});
+    const store = new MongoStore({ mongoose: mongoose });
+    const client = new Client({
+        authStrategy: new RemoteAuth({
+            store: store,
+            backupSyncIntervalMs: 300000 
+        }),
+        puppeteer: { 
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
+        }
+    });
 
-client.initialize();
-            
+    client.on('qr', async (qr) => {
+        console.log('⚡ تم توليد رمز QR، افتح الموقع لمسحه.');
+        qrCodeImage = await QRCode.toDataURL(qr);
+    });
+
+    client.on('remote_session_saved', () => {
+        console.log('💾 [نجاح] تم حفظ الجلسة في MongoDB! لن يطلب الرمز مجدداً.');
+    });
+
+    client.on('ready', () => {
+        console.log('🎉 البوت جاهز تماماً!');
+        qrCodeImage = '';
+        client.getChats().then(chats => {
+            console.log('=== قائمة المجموعات المتاحة ===');
+            chats.forEach(chat => {
+                if (chat.isGroup) console.log(`المجموعة: ${chat.name} | ID: ${chat.id._serialized}`);
+            });
+        });
+    });
+
+    client.initialize();
+}).catch(err => {
+    console.error('❌ خطأ في الاتصال بقاعدة البيانات (تحقق من الرابط أو إعدادات IP):', err);
+});
